@@ -1,0 +1,18 @@
+{
+    "user": {
+      "firstName": "",
+      "lastName": "",
+      "email": "",
+      "username": "k6-go-app-admin-user",
+      "status": "Enabled",
+      "privileges": [
+        "MetricsViewer",
+        "LogAPI_ExtApps_Application_ReadOnly",
+        "Exposure_Application_Administrator",
+        "UserAdministration_ExtAppRbac_Application_SecurityAdministrator"
+      ]
+    },
+    "password": "idunEr!css0n",
+    "tenant": "master",
+    "passwordResetFlag": false
+  }

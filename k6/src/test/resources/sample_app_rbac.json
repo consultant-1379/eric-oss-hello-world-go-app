@@ -1,0 +1,76 @@
+{
+  "tenant": "master",
+  "roles": [
+    {
+      "name": "SampleApp_Application_Administrator"
+    }
+  ],
+  "authorization": {
+    "resources": [
+      {
+        "name": "sample_app_hello",
+        "type": "urn:eo:resources:extrapp",
+        "ownerManagedAccess": false,
+        "uris": [
+          "/hello"
+        ],
+        "scopes": [
+          {
+            "name": "PATCH"
+          },
+          {
+            "name": "DELETE"
+          },
+          {
+            "name": "GET"
+          },
+          {
+            "name": "POST"
+          },
+          {
+            "name": "PUT"
+          }
+        ]
+      }
+    ],
+    "policies": [
+      {
+        "name": "Sample App Hello Policy",
+        "type": "role",
+        "logic": "POSITIVE",
+        "decisionStrategy": "UNANIMOUS",
+        "config": {
+          "roles": "[{\"id\":\"SampleApp_Application_Administrator\",\"required\":false}]"
+        }
+      },
+      {
+        "name": "Sample App Hello Permission",
+        "type": "scope",
+        "logic": "POSITIVE",
+        "decisionStrategy": "AFFIRMATIVE",
+        "config": {
+          "resources": "[\"sample_app_hello\"]",
+          "scopes": "[\"GET\",\"PUT\",\"POST\",\"DELETE\",\"PATCH\"]",
+          "applyPolicies": "[\"Sample App Hello Policy\"]"
+        }
+      }
+    ],
+    "scopes": [
+      {
+        "name": "GET"
+      },
+      {
+        "name": "POST"
+      },
+      {
+        "name": "DELETE"
+      },
+      {
+        "name": "PUT"
+      },
+      {
+        "name": "PATCH"
+      }
+    ]
+  }
+}

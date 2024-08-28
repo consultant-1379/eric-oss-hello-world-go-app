@@ -1,0 +1,10 @@
+description: |
+  Should return "Hello World!!"
+request:
+  method: GET
+  url: /hello
+  headers:
+    Content-Type: text/plain
+response:
+  body: 'Hello World!!'
+  status: 200

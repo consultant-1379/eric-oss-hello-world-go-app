@@ -1,0 +1,41 @@
+# Created by .ignore support plugin (hsz.mobi)
+
+### Eclipse template
+.project
+.classpath
+.metadata
+bin/
+tmp/
+*.tmp
+*.bak
+*.swp
+*~.nib
+local.properties
+.settings/
+.loadpath
+.recommenders
+
+### IntelliJ
+.idea
+*.iml
+
+### mac
+.DS_Store
+
+### Annotation Processing
+.apt_generated/
+.apt_generated_test/
+
+### Log file
+*.log
+
+### Bob files
+.bob
+
+### Build folders
+target/
+build/
+vendor/
+
+### Miscellaneous
+cover.out

@@ -1,0 +1,67 @@
+modelVersion: 2.0
+
+# env is per file, cannot be imported
+env:
+  - PWD
+  - DPRAF_API_TOKEN
+
+  # VA Images
+  - KUBESEC_TAG (default=latest)
+  - KUBEAUDIT_TAG (default=latest)
+  - HADOLINT_TAG (default=latest)
+
+properties:
+  - service-name: "Golang Hello World Sample Application"
+
+  - build-dir: ${env.PWD}
+  - build-target-dir: ${env.PWD}/target
+  - build-executable: ${build-target-dir}/${helm-chart-name}
+  - build-source: ${env.PWD}/src
+
+  - golangci-lint-config-yml: ${build-dir}/golangci.yml
+
+  - docker-params: "--workdir ${env.PWD}
+      --env GOBIN=${env.PWD}/build
+      --env GOCACHE=/tmp/.gocache
+      --env GERRIT_REVIEW_PASS_USER
+      --env GERRIT_REVIEW_PASS_PASS
+      --env GERRIT_USERNAME
+      --env GERRIT_PASSWORD
+      --env GOPATH=/tmp
+      --env HOME=/tmp
+      --env GOPRIVATE=gerrit-review.gic.ericsson.se/cloud-ran/src/golang-log-api,gerrit.ericsson.se/adp-ref-app/adp-ref-props,gerrit-review.gic.ericsson.se/cloud-ran/src/golang-tlsconf"
+
+  - image-base-os-version: "3.30.0-7"
+  - stdout-version: "1.3.1"
+  - image-product-number: "CXC 201 1995"
+
+  - artifactory-repo-server: https://arm.seli.gic.ericsson.se/artifactory
+  - artifactory-repopath: proj-eric-oss-dev-generic-local/eric-oss-hello-world-go-app
+
+  - helm-chart-name: eric-oss-hello-world-go-app
+  - helm-chart-package-name: eric-oss-hello-world-go-app
+  - dependency-file-name: ci_config/dependencies.yaml
+  - artifactory-drop-repo: ${artifactory-repo-server}/${artifactory-repopath}
+  - helm-chart-repo-server: https://arm.seli.gic.ericsson.se/artifactory
+  - helm-chart-ci-repopath: proj-eric-oss-ci-internal-helm-local
+  - helm-chart-drop-repopath: proj-eric-oss-drop-helm-local
+  - helm-chart-drop-repo: ${helm-chart-repo-server}/${helm-chart-drop-repopath}
+  - helm-chart-internal-repo: ${helm-chart-repo-server}/${helm-chart-ci-repopath}
+
+  - docker-image-name: eric-oss-hello-world-go-app
+  - docker-initcontainer-name: eric-oss-hello-world-go-app-init
+  - image-drop-repopath: proj-eric-oss-drop
+  - image-registry: armdocker.rnd.ericsson.se
+  - image-ci-repopath: proj-adp-ref-app-ci-internal
+  - image-full-name: ${image-registry}/${image-drop-repopath}/${docker-image-name}
+
+  # Add "-DhelmDesignRule.config.DR-####=skip" to skip a Helm Lint ADP Design Rule. Or use "=enable" to turn one on ###
+  - skipped-design-rules: ""
+
+  - kubesec-image: armdocker.rnd.ericsson.se/proj-adp-cicd-drop/va-scan-kubesec:${env.KUBESEC_TAG}
+  - kubeaudit-image: armdocker.rnd.ericsson.se/proj-adp-cicd-drop/va-scan-kubeaudit:${env.KUBEAUDIT_TAG}
+  - hadolint-image: armdocker.rnd.ericsson.se/proj-adp-cicd-drop/hadolint-scan:${env.HADOLINT_TAG}
+
+  # zip file validation
+  - required-dirs: 'charts/,src/,vendor/,csar/'
+  - required-files: 'Dockerfile-template,go.mod,go.sum,README.md,version'

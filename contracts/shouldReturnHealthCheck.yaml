@@ -1,0 +1,10 @@
+description: |
+  Should return "Ok"
+request:
+  method: GET
+  url: /health
+  headers:
+    Content-Type: text/plain
+response:
+  body: 'Ok'
+  status: 200

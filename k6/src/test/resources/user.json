@@ -1,0 +1,15 @@
+{
+  "user": {
+    "firstName": "",
+    "lastName": "",
+    "email": "",
+    "username": "sample-app-user",
+    "status": "Enabled",
+    "privileges": [
+      "SampleApp_Application_Administrator"
+    ]
+  },
+  "password": "idunEr!css0n",
+  "tenant": "master",
+  "passwordResetFlag": false
+}

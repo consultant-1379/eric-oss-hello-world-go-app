@@ -1,0 +1,489 @@
+modelVersion: 2.0
+
+# BOB reference:
+# https://gerrit.ericsson.se/plugins/gitiles/adp-cicd/bob/+/HEAD/USER_GUIDE_2.0.md
+#
+description: "IDUN Hello World Go Sample App"
+
+import:
+  props: bob-properties.yaml
+
+# 'env' is per file, cannot be imported
+env:
+  - GERRIT_REVIEW_PASS_USER
+  - GERRIT_REVIEW_PASS_PASS
+  - GOOS="linux"
+  - GOARCH="amd64"
+  - GOPRIVATE="gerrit-review.gic.ericsson.se/cloud-ran/src/golang-log-api,gerrit.ericsson.se/adp-ref-app/adp-ref-props,gerrit-review.gic.ericsson.se/cloud-ran/src/golang-tlsconf"
+  - GERRIT_USERNAME
+  - GERRIT_PASSWORD
+  - GERRIT_CHANGE_NUMBER
+  - HOME=/tmp
+  - ENABLE_HELM_V3 (default=true)
+  - ARM_LOGSTDOUT_TOKEN
+  - RELEASE (default=false)
+  - ENABLE_HELM_V3 (default=true)
+
+  # SonarQube
+  - SONAR_AUTH_TOKEN
+  - SONAR_HOST_URL
+  - SONAR_BRANCH (default="master")
+  - SELI_ARTIFACTORY_REPO_USER
+  - SELI_ARTIFACTORY_REPO_PASS
+
+  # VA Images
+  - KUBESEC_TAG (default=latest)
+  - KUBEAUDIT_TAG (default=latest)
+  - HADOLINT_TAG (default=latest)
+
+docker-images:
+  # in ADP GS environment use the 'latest' tag, as testing may contain potentially
+  # unstable/not tested content
+  - adp-release-auto: armdocker.rnd.ericsson.se/proj-adp-cicd-drop/bob-adp-release-auto:latest
+  - go-builder: armdocker.rnd.ericsson.se/proj-adp-cicd-drop/bob-gobuilder.adp-base-os:4.37.0
+  - adp-helm-dr-check: armdocker.rnd.ericsson.se/proj-adp-cicd-drop/common-library-adp-helm-dr-check:15.1.1
+  - sh-builder: armdocker.rnd.ericsson.se/proj-adp-cicd-drop/bob-shbuilder:2.0.0-0
+  - doc-builder: armdocker.rnd.ericsson.se/proj-adp-cicd-drop/bob-docbuilder:2.4.1-1
+  - bob-sonarscannerbuilder: armdocker.rnd.ericsson.se/proj-adp-cicd-drop/bob-sonarscannerbuilder:latest
+
+  - kubesec: armdocker.rnd.ericsson.se/proj-adp-cicd-drop/va-scan-kubesec:${env.KUBESEC_TAG}
+  - kubeaudit: armdocker.rnd.ericsson.se/proj-adp-cicd-drop/va-scan-kubeaudit:${env.KUBEAUDIT_TAG}
+  - hadolint: armdocker.rnd.ericsson.se/proj-adp-cicd-drop/hadolint-scan:${env.HADOLINT_TAG}
+
+# using 'var' so need to be kept local
+properties:
+  - sdk-artifacts-zip-file-name: ${props.build-target-dir}/${props.helm-chart-name}-${var.version}.zip
+  - validation-zip-path: target/${props.helm-chart-name}-${var.version}.zip
+  - helm-chart-file-name: ${props.helm-chart-package-name}-${var.version}.tgz
+  - product_info_file_path: target/charts/${props.helm-chart-package-name}/eric-product-info.yaml
+
+# 'var' is per file, cannot be imported
+var:
+  - version
+  - rstate
+  - commithash
+  - helm-chart-repo-internal
+  - image-build-name
+  - helm-product-info-repo
+  - helm-artifactory-path
+  - hadolint_resultcode
+
+rules:
+  clean:
+    - task: rm
+      cmd:
+        - rm -rf ${props.build-target-dir}
+        - rm -rf spring-cloud-contract-output/
+        - rm -rf .bob/
+    - task: cleanup-contract-testing
+      cmd:
+        - rm -r build/ | true
+        - docker stop sample-app | true
+        - docker stop spring-contract | true
+        - docker stop test-sample-app | true
+        - docker rm -f sample-app | true
+        - docker rm -f spring-contract | true
+        - docker rm -f test-sample-app | true
+        - docker network rm app-network | true
+
+  publish-generate-varaiables:
+    - task: version
+      docker-image: adp-release-auto
+      docker-flags:
+        - "--env RELEASE"
+      cmd:    
+        - version-handler generate
+          --is-release true
+          --output version
+          --git-repo-path .
+        - sed -e 's@-.*$@@' .bob/var.version
+        - echo "** version = " ${var.version}
+
+  sonar-enterprise-pcr:
+    - task: sonar-enterprise-pcr
+      description: sonar-scanner
+      docker-image: bob-sonarscannerbuilder
+      docker-flags:
+        - ${props.docker-params}
+      cmd: sonar-scanner
+        -Dproject.settings=./sonar-project.properties
+        -Dsonar.login=${env.SONAR_AUTH_TOKEN}
+        -Dsonar.host.url=${env.SONAR_HOST_URL}
+        -Dsonar.branch.name=${env.GERRIT_CHANGE_NUMBER}
+        -Dsonar.branch.target=${env.SONAR_BRANCH}
+
+  sonar-enterprise-publish:
+    - task: sonar-enterprise-publish
+      description: sonar-scanner
+      docker-image: bob-sonarscannerbuilder
+      docker-flags:
+        - ${props.docker-params}
+      cmd: sonar-scanner
+        -Dproject.settings=./sonar-project.properties
+        -Dsonar.login=${env.SONAR_AUTH_TOKEN}
+        -Dsonar.host.url=${env.SONAR_HOST_URL}
+
+  generate-variables:
+    - task: version
+      docker-image: adp-release-auto
+      cmd:
+        - version-handler generate
+          --is-release false
+          --output version
+          --git-repo-path .
+        - sed -e 's@-.*$@@' .bob/var.version
+        - echo "** version = " ${var.version}
+    - task: rstate
+      docker-image: adp-release-auto
+      cmd:
+        - echo "version generated = " ${var.version}
+        - get_rstate.py ${var.version} > .bob/var.rstate
+    - task: commit
+      docker-image: adp-release-auto
+      cmd: git rev-parse --short HEAD > .bob/var.commithash
+
+  download-go-dependencies:
+    - task: download-go-dependencies
+      docker-image: go-builder
+      docker-flags:
+        - ${props.docker-params}
+      cmd:
+        bash -c 'git config --global url.https://${env.GERRIT_REVIEW_PASS_USER}:${env.GERRIT_REVIEW_PASS_PASS}@gerrit-review.gic.ericsson.se.insteadOf https://gerrit-review.gic.ericsson.se;
+        go mod vendor'
+
+  build-go:
+    - task: build
+      docker-image: go-builder
+      docker-flags:
+        - ${props.docker-params}
+      cmd:
+        - go build -mod=vendor -o ${props.build-executable} ${props.build-source}
+    - task: verify go binary built
+      cmd: sh -c '
+        if [ ! -f ${props.build-executable} ];then 
+        echo "Error in go build command"; exit 1; fi;'
+
+  create-image-build-name-internal:
+    - task: image-full-name-internal
+      cmd: echo "${props.image-registry}/${props.image-ci-repopath}/${props.docker-image-name}" > .bob/var.image-build-name
+    - task: log-variable-created
+      cmd: echo "docker internal image name = " ${var.image-build-name}
+
+  create-image-build-name-public:
+    - task: image-full-name-public
+      cmd: echo "${props.image-registry}/${props.image-drop-repopath}/${props.docker-image-name}" > .bob/var.image-build-name
+    - task: log-variable-created
+      cmd: echo "docker public image name = " ${var.image-build-name}
+
+  # a rule to populate the variable 'image-build-name' has to be executed before calling the 'build-docker-image' rule!
+  build-docker-image:
+    - task: build-docker-image
+      cmd: docker build ${props.build-dir}
+        --tag ${var.image-build-name}:${var.version}
+        --build-arg BASE_OS_VERSION=${props.image-base-os-version}
+        --build-arg STDOUT_VERSION=${props.stdout-version}
+        --build-arg APP_VERSION=${var.version}
+        --label com.ericsson.product-number="${props.image-product-number}"
+        --label com.ericsson.product-revision=${var.rstate}
+        --label org.opencontainers.image.title="${props.service-name} Image"
+        --label org.opencontainers.image.created=`date -u +%FT%TZ`
+        --label org.opencontainers.image.revision=${var.commithash}
+        --label org.opencontainers.image.vendor="Ericsson"
+        --label org.opencontainers.image.version=${var.version}
+    - task: verify docker image built
+      cmd: docker images ${var.image-build-name}:${var.version} | grep -q ${var.image-build-name}
+    - task: push-docker-image
+      cmd:
+        - docker push ${var.image-build-name}:${var.version}
+
+  test-docker-image:
+    - task: run-sample-app-container
+      cmd: docker run
+        --rm -d -p 8050:8050
+        --name test-sample-app
+        ${var.image-build-name}:${var.version}
+
+  # Run link to check readme files, helm charts
+  # More info: https://confluence-oss.seli.wh.rnd.internal.ericsson.com/display/DGBase/Microservice+Chassis+CI+Pipeline+-+Overview
+  lint:
+    - task: markdownlint
+      docker-image: doc-builder
+      cmd: markdownlint --config /etc/markdownlint-cli/adp.yaml $(git ls-files -- \*\.md | grep -v vendor | cat | xargs)
+    - task: vale
+      docker-image: doc-builder
+      cmd: vale --config /etc/vale/adp.ini --output line --no-wrap $(git ls-files -- \*\.md | grep -v vendor | cat | xargs)
+    - task: helm
+      docker-image: adp-release-auto
+      cmd:
+        - echo "${var.version}" > version
+        - sed -i "s/VERSION/${var.version}/g" charts/${props.helm-chart-name}/Chart.yaml
+        - helm lint charts/${props.helm-chart-name}
+    - task: helm-chart-check
+      docker-image: adp-helm-dr-check
+      cmd:
+        - sed -i "s/VERSION/${var.version}/g" charts/${props.helm-chart-name}/Chart.yaml
+        - helm-dr-check --helm-chart charts/${props.helm-chart-name} --output .bob/check-helm/ --helm-v3 ${props.skipped-design-rules}
+      # The script will validate an existing ${props.dependency-file-name} document.
+      # If it fail follow instruction in confluence and do scan-bazaar
+    - rule: dependency-validate
+    - task: golang
+      docker-image: go-builder
+      docker-flags:
+        - ${props.docker-params}
+        - "-t"
+      cmd:
+        - golangci-lint run --config ${props.golangci-lint-config-yml} ./...
+    - task: shellcheck
+      docker-image: sh-builder
+      cmd: shellcheck -x --shell bash $(git ls-files | awk '/.sh$/ && ! /vendor/ && ! /github/')
+
+  # The script will validate an existing ${props.dependency-file-name} document.
+  # If it fail follow instruction in confluence and do scan-bazaar
+  dependency-validate:
+    - task: dependency-validate
+      docker-image: adp-release-auto
+      cmd: dependencies validate
+        --dependencies ${props.dependency-file-name}
+
+  # Run Vulnerability Analysis
+  # This can be used locally. As bob doesn't support parallel tasks, the Jenkins will call each separately in a parallel scope
+  # More info: https://confluence-oss.seli.wh.rnd.internal.ericsson.com/display/DGBase/BDGS+Vulnerability+Analysis+Requirement
+  vulnerability-analysis:
+    - rule: hadolint
+    - rule: kubeaudit
+    - rule: kubehunter
+
+  # Hadolint: https://github.com/hadolint/hadolint
+  # More info: https://confluence.lmera.ericsson.se/display/ACD/Hadolint
+  hadolint:
+    - task: create-report-directory
+      cmd: mkdir -p ${props.build-target-dir}/va-reports/hadolint-scan
+    - task: hadolint-scan
+      docker-image: hadolint
+      docker-flags:
+        - --workdir /app/
+        - -v ${props.build-dir}/config/hadolint_config.yaml:/config/hadolint_config.yaml
+        - -v ${props.build-dir}/Dockerfile:/Dockerfile
+        - -v ${props.build-target-dir}/va-reports/hadolint-scan:/tmp/reports/
+      cmd: -p ${props.helm-chart-name} -f /Dockerfile -c /config/hadolint_config.yaml; echo $? > .bob/var.hadolint_resultcode
+    - task: hadolint-result-check
+      cmd: sh -c '
+        if [ ${var.hadolint_resultcode} -ne 0 ]; then
+          echo "Failure in hadolint checker" && exit ${var.hadolint_resultcode} ;
+        fi ;'
+
+  # kubesec: https://kubesec.io/
+  # More Info: https://confluence.lmera.ericsson.se/display/ACD/Kubesec+Scanning
+  kubesec:
+    - task: helm-template
+      docker-image: adp-release-auto
+      cmd:
+        - sed -i "s/VERSION/${var.version}/g" charts/${props.helm-chart-name}/Chart.yaml
+        - helm template charts/${props.helm-chart-name} --output-dir=${props.build-target-dir}/helm_template
+    - task: remove-files-not-for-scanning
+      cmd:
+        - rm -rf ${props.build-target-dir}/helm_template/${props.helm-chart-name}/templates/tests
+        - rm -rf ${props.build-target-dir}/helm_template/${props.helm-chart-name}/templates/hpa.yaml
+        - rm -rf ${props.build-target-dir}/helm_template/${props.helm-chart-name}/templates/rolebinding.yaml
+    - task: kubesec-scan-test
+      docker-image: kubesec
+      docker-flags:
+        - --workdir /opt/va-scan-kubesec/
+        - -v ${props.build-dir}/config/kubesec_config.yaml:/opt/va-scan-kubesec/conf/kubesec_config.yaml
+        - -v ${props.build-target-dir}/va-reports/kubesec-reports/:/tmp/reports
+        - -v ${props.build-target-dir}/helm_template/:/tmp/src
+      cmd: " "
+
+  # kubeaudit: https://github.com/Shopify/kubeaudit
+  # More Info: https://confluence.lmera.ericsson.se/display/ACD/KubeAudit+Scanning
+  kubeaudit:
+    - task: helm-template
+      docker-image: adp-release-auto
+      cmd:
+        - sed -i "s/VERSION/${var.version}/g" charts/${props.helm-chart-name}/Chart.yaml
+        - helm template charts/${props.helm-chart-name} --output-dir=${props.build-target-dir}/helm_template
+    - task: kube-audit-test
+      docker-image: kubeaudit
+      docker-flags:
+        - --workdir /opt/va-scan-kubeaudit/
+        - -v ${props.build-dir}/config/kubeaudit_config.yaml:/opt/va-scan-kubeaudit/conf/kubeaudit_config.yaml
+        - -v ${props.build-target-dir}/va-reports/kube-audit-report/:/tmp/reports
+        - -v ${props.build-target-dir}/helm_template:/tmp/src
+      cmd: " "
+
+  # Fetch vulnerabililty report VA 2.0
+  generate-VA-report:
+    - task: no-upload
+      docker-image: adp-release-auto
+      cmd: bash -c 'va-report
+        --set version=${var.version}
+        --set helmChartName=${props.helm-chart-name}
+        --config ${props.build-dir}/config/va-report.yaml
+        --output ${props.build-target-dir}/va-reports/Vulnerability_Report_2.0.md
+        --md
+        --debug
+        --kubeaudit-reports ${props.build-target-dir}/va-reports/kube-audit-report/${props.helm-chart-name}/templates/deployment
+        --kubesec-reports ${props.build-target-dir}/va-reports/kubesec-reports'; exit 0;
+
+  test:
+    - task: test
+      docker-image: go-builder
+      docker-flags:
+        - ${props.docker-params}
+        - "-t"
+      cmd:
+        - go test -coverprofile cover.out -v ./src
+
+  generate-docs:
+    - task: generate-docs
+      cmd: echo '[GENERATE DOCS PLACEHOLDER]]'
+
+  publish-zip-public:
+    - task: zip-sample-app
+      docker-image: adp-release-auto
+      cmd:
+        - echo "${var.version}" > version
+        - sed -i "s/VERSION/${var.version}/g" charts/${props.helm-chart-name}/Chart.yaml
+        - sed -i "s/VERSION/${var.version}/g" csar/Definitions/AppDescriptor.yaml
+        - sed -i "s/VERSION/${var.version}/g" csar/OtherDefinitions/ASD/${props.helm-chart-name}ASD.yaml
+        - cp -r charts src vendor csar go.mod go.sum README.md version zip-artifact-contents.txt target
+        - cp Dockerfile target/Dockerfile-template
+        - sed -i "1s/.*/FROM <DOCKER-IMAGE>/" target/Dockerfile-template
+        - sed -i "s/VERSION/${var.version}/g" ${product_info_file_path}
+        - sed -i "s/REPO_PATH/${var.helm-product-info-repo}/g" ${product_info_file_path}
+        - "bash -c 'cd target && zip -r ${props.helm-chart-name}-${var.version}.zip -@ < zip-artifact-contents.txt'"
+
+    - task: validate-zip
+      docker-image: go-builder
+      docker-flags:
+        - ${props.docker-params}
+      cmd:
+        - go run zip-validation/Main.go -zipPath=${validation-zip-path} -requiredDirs=${props.required-dirs} -requiredFiles=${props.required-files}
+
+    - task: zip-upload-public-repo
+      docker-image: adp-release-auto
+      cmd: 
+        - upload_file.sh
+            --filename=${sdk-artifacts-zip-file-name}
+            --repository=${props.artifactory-drop-repo}
+            --api-token=${env.SELI_ARTIFACTORY_REPO_PASS}
+            --overwrite=true
+
+
+  # the vars 'helm-product-info-repo' & 'helm-artifactory-path' need to be populated before packaging or pushing helm to repos
+  create-helm-build-vars-internal:
+    - task: helm-product-info-repo-internal
+      cmd: echo "${props.image-ci-repopath}" > .bob/var.helm-product-info-repo
+    - task: log-helm-product-info-repo-variable-created
+      cmd: echo "internal helm-product-info-repo name = " ${var.helm-product-info-repo}
+    - task: helm-artifactory-path-internal
+      cmd: echo "${props.helm-chart-internal-repo}" > .bob/var.helm-artifactory-path
+    - task: log-helm-artifactory-path-variable-created
+      cmd: echo "internal helm-artifactory-path name = " ${var.helm-artifactory-path}
+
+  create-helm-build-vars-public:
+    - task: helm-product-info-repo-public
+      cmd: echo "${props.image-drop-repopath}" > .bob/var.helm-product-info-repo
+    - task: log-helm-product-info-repo-variable-created
+      cmd: echo "public helm-product-info-repo name = " ${var.helm-product-info-repo}
+    - task: helm-artifactory-path-public
+      cmd: echo "${props.helm-chart-drop-repo}" > .bob/var.helm-artifactory-path
+    - task: log-helm-artifactory-path-variable-created
+      cmd: echo "public helm-artifactory-path name = " ${var.helm-artifactory-path}
+
+  # a rule to populate the variables 'product-info-repo' and 'artifactory-path' has to be executed before calling the 'publish-helm' rule!
+  publish-helm:
+    - task: package-helm
+      docker-image: adp-release-auto
+      docker-flags:
+        - "--env SELI_ARTIFACTORY_REPO_USER"
+        - "--env SELI_ARTIFACTORY_REPO_PASS"
+        - "--env ENABLE_HELM_V3=${env.ENABLE_HELM_V3}"
+      cmd: helm-package
+        --folder charts/${props.helm-chart-name}
+        --workdir .bob --output build
+        --version ${var.version}
+        --replace Chart.yaml:VERSION=${var.version}
+        --replace eric-product-info.yaml:VERSION=${var.version}
+        --replace eric-product-info.yaml:REPO_PATH=${var.helm-product-info-repo}
+        --replace logcontrol.json:SEVERITY_TO_REPLACE=info
+    - task: upload-helm-to-repo
+      docker-image: adp-release-auto
+      docker-flags:
+        - "--env ENABLE_HELM_V3=${env.ENABLE_HELM_V3}"
+      cmd: upload_file.sh
+        --filename=build/${helm-chart-file-name}
+        --repository=${var.helm-artifactory-path}/${props.helm-chart-name}
+        --api-token=${env.SELI_ARTIFACTORY_REPO_PASS}
+
+  # variable 'image-build-name' should be populated before this rules is called...
+  contract-testing:
+    - task: create-docker-network
+      cmd: docker network create app-network
+    - task: run-sample-app-container
+      cmd: docker run
+        --rm -d
+        --name sample-app
+        --hostname=sample-app
+        --network=app-network
+        ${var.image-build-name}:${var.version}
+    - task: run-spring-cloud-contract-testing-container
+      cmd: docker run
+        -e PROJECT_GROUP=com.ericsson.oss.ae
+        -e PROJECT_VERSION=${var.version}
+        -e PROJECT_NAME=eric-oss-hello-world-go-app
+        -e PUBLISH_ARTIFACTS=false
+        -e APPLICATION_BASE_URL=http://sample-app:8050/
+        --network=app-network
+        --name spring-contract
+        --volume ${props.build-dir}/contracts/:/contracts:ro
+        armdocker.rnd.ericsson.se/dockerhub-ericsson-remote/springcloud/spring-cloud-contract:2.2.6.RELEASE
+
+  # variable 'image-build-name' should be populated before this rules is called...
+  publish-contract-testing:
+    - task: run-spring-cloud-contract-testing-container
+      cmd: docker run
+        -e PROJECT_GROUP=com.ericsson.oss.ae
+        -e PROJECT_VERSION=${var.version}
+        -e PROJECT_NAME=eric-oss-hello-world-go-app
+        -e PUBLISH_ARTIFACTS=true
+        -e APPLICATION_BASE_URL=http://sample-app:8050/
+        -e REPO_WITH_BINARIES_URL=https://arm.seli.gic.ericsson.se/artifactory/proj-eric-oss-dev-local/
+        -e REPO_WITH_BINARIES_USERNAME=${env.SELI_ARTIFACTORY_REPO_USER}
+        -e REPO_WITH_BINARIES_PASSWORD=${env.SELI_ARTIFACTORY_REPO_PASS}
+        --network=app-network
+        --name spring-contract
+        --volume ${props.build-dir}/contracts/:/contracts:ro
+        armdocker.rnd.ericsson.se/dockerhub-ericsson-remote/springcloud/spring-cloud-contract:2.2.6.RELEASE
+
+  archive-artifacts:
+    - task: adp-artifacts-properties
+      docker-image: adp-release-auto
+      cmd: generate-adp-artifacts
+        --chart-name ${props.helm-chart-name}
+        --chart-version ${var.version}
+        --chart-repo ${props.helm-chart-drop-repo}
+        --image-name ${props.docker-image-name}
+        --image-version ${var.version}
+        --image-repo "${props.image-registry}/${props.image-drop-repopath}"
+        --image-only true
+    - task: write-git-details
+      cmd:
+        - echo "GIT_TAG=$(git log -1 --pretty=format:'%h')" >> artifact.properties
+        - echo "GIT_COMMIT_AUTHOR=$(git log -1 --pretty=format:'%an')" >> artifact.properties
+        - echo "GIT_COMMIT_AUTHOR_EMAIL=$(git log -1 --format='%aE')" >> artifact.properties
+        - echo "GIT_COMMIT_SUMMARY=$(git log -1 --pretty=format:'%s')" >> artifact.properties
+
+  copy-contract-testing-output:
+    - task: copy-contract-stub-tests-output
+      cmd:
+        - mkdir -p build/
+        - docker cp spring-contract:/spring-cloud-contract-output build/
+
+  cleanup-images:
+    - task: clean-images
+      cmd:
+        - docker rmi ${var.image-build-name}:${var.version} | true
+        - docker rmi ${kubesec-image} | true
+        - docker rmi ${kubeaudit-image} | true
+        - docker rmi ${hadolint-image} | true

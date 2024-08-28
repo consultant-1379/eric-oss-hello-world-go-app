@@ -1,0 +1,12 @@
+{
+  "id": "hello-route-001",
+  "predicates": [
+    {
+      "name": "Path",
+      "args": {
+        "_genkey_0": "/hello"
+      }
+    }
+  ],
+  "uri": "http://eric-oss-hello-world-go-app:8050"
+}
